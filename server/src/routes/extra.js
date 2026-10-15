@@ -1,0 +1,44 @@
+import { Router } from 'express';
+import { requireRole } from '../middleware/auth.js';
+import { authenticate, staff, admin, upload, resourceUpload, publicLookupLimit, get_dashboard_1, get_public_seat_2, get_buildings_3, post_buildings_4, put_buildings_id_32, get_floors_5, post_floors_6, put_floors_id_33, get_programs_7, get_departments_catalog_8, get_exams_eligibility_9, get_departments_10, post_departments_11, put_departments_id_35, post_programs_12, put_programs_id_13, get_students_14, get_students_registrations_pending_15, post_students_registrations_id_approve_16, post_students_17, put_students_id_31, post_students_import_preview_18, get_students_import_batchid_preview_19, post_students_import_batchid_commit_20, get_students_import_template_csv_21, get_subjects_22, post_subjects_23, put_subjects_id_36, get_resources_id_24, post_exams_25, put_exams_id_37, get_officers_26, post_officers_27, patch_officers_id_28, get_audit_logs_29, get_officer_students_30 } from '../controllers/academic.controller.js';
+
+const r = Router();
+
+r.get('/dashboard', authenticate, staff, get_dashboard_1);
+r.get('/public/seat', publicLookupLimit, get_public_seat_2);
+r.get('/buildings', authenticate, staff, get_buildings_3);
+r.post('/buildings', authenticate, staff, post_buildings_4);
+r.put('/buildings/:id', authenticate, admin, put_buildings_id_32);
+r.get('/floors', authenticate, staff, get_floors_5);
+r.post('/floors', authenticate, staff, post_floors_6);
+r.put('/floors/:id', authenticate, admin, put_floors_id_33);
+r.get('/programs', authenticate, staff, get_programs_7);
+r.get('/departments/catalog', authenticate, staff, get_departments_catalog_8);
+r.get('/exams/eligibility', authenticate, staff, get_exams_eligibility_9);
+r.get('/departments', authenticate, staff, get_departments_10);
+r.post('/departments', authenticate, admin, post_departments_11);
+r.put('/departments/:id', authenticate, admin, put_departments_id_35);
+r.post('/programs', authenticate, admin, post_programs_12);
+r.put('/programs/:id', authenticate, admin, put_programs_id_13);
+r.get('/students', authenticate, admin, get_students_14);
+r.get('/officer/students', authenticate, staff, get_officer_students_30);
+r.get('/students/registrations/pending', authenticate, admin, get_students_registrations_pending_15);
+r.post('/students/registrations/:id/approve', authenticate, admin, post_students_registrations_id_approve_16);
+r.post('/students', authenticate, admin, post_students_17);
+r.put('/students/:id', authenticate, admin, put_students_id_31);
+r.post('/students/import/preview', authenticate, admin, upload.single('file'), post_students_import_preview_18);
+r.get('/students/import/:batchId/preview', authenticate, admin, get_students_import_batchid_preview_19);
+r.post('/students/import/:batchId/commit', authenticate, admin, post_students_import_batchid_commit_20);
+r.get('/students/import/template.csv', authenticate, admin, get_students_import_template_csv_21);
+r.get('/subjects', authenticate, staff, get_subjects_22);
+r.post('/subjects', authenticate, admin, post_subjects_23);
+r.put('/subjects/:id', authenticate, admin, put_subjects_id_36);
+r.get('/resources/:id', authenticate, requireRole('student', 'officer', 'superadmin'), get_resources_id_24);
+r.post('/exams', authenticate, staff, resourceUpload.array('files', 5), post_exams_25);
+r.put('/exams/:id', authenticate, staff, put_exams_id_37);
+r.get('/officers', authenticate, admin, get_officers_26);
+r.post('/officers', authenticate, admin, post_officers_27);
+r.patch('/officers/:id', authenticate, admin, patch_officers_id_28);
+r.get('/audit-logs', authenticate, admin, get_audit_logs_29);
+
+export default r;
