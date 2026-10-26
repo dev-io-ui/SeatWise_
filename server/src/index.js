@@ -12,13 +12,13 @@ app.use((e, q, s, n) => e instanceof ZodError
   ? s.status(400).json({ error: 'Validation failed', details: e.issues })
   : e.name === 'CastError'
     ? s.status(400).json({ error: 'Invalid identifier' })
-  : e.code === 11000
-    ? s.status(409).json({ error: 'A record with that unique value already exists' })
-  : e.name === 'MulterError'
-    ? s.status(e.code === 'LIMIT_FILE_SIZE' ? 413 : 400).json({ error: e.message })
-  : e.status
-    ? s.status(e.status).json({ error: e.message })
-  : (console.error(e), s.status(e.status || 500).json({ error: e.status ? e.message : 'Server error' })));
+    : e.code === 11000
+      ? s.status(409).json({ error: 'A record with that unique value already exists' })
+      : e.name === 'MulterError'
+        ? s.status(e.code === 'LIMIT_FILE_SIZE' ? 413 : 400).json({ error: e.message })
+        : e.status
+          ? s.status(e.status).json({ error: e.message })
+          : (console.error(e), s.status(e.status || 500).json({ error: e.status ? e.message : 'Server error' })));
 await mongoose.connect(process.env.MONGO_URI);
 const migration = await migrateLegacyData();
 if (migration.migratedFloors || migration.migratedPlans || migration.synchronizedPrograms) {

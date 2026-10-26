@@ -38,7 +38,7 @@ export const post_auth_register_3 = wrap(async (q, s) => {
     name: z.string().trim().min(2).max(120),
     rollNumber: z.string().trim().min(1).max(60),
     email: z.string().trim().email().max(254),
-    password: z.string().min(12).max(128),
+    password: z.string().min(5).max(128),
     program: z.string().trim().min(1).max(100),
     department: z.string().trim().min(1).max(80),
     year: z.coerce.number().int().min(1),
@@ -105,7 +105,7 @@ export const patch_auth_profile_6 = wrap(async (q, s) => {
     name: z.string().trim().min(2).max(120),
     email: z.string().trim().email().max(254),
     currentPassword: z.string().min(1).optional(),
-    newPassword: z.string().min(12).max(128).optional()
+    newPassword: z.string().min(5).max(128).optional()
   }).strict().parse(q.body);
 
   if (Boolean(body.currentPassword) !== Boolean(body.newPassword)) {
