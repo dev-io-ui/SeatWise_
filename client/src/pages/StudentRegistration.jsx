@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api.js';
+import { semestersForYear } from '../academic-cohort.js';
 
 export default function StudentRegistration({ onLogin }) {
   const [options, setOptions] = useState(null);
@@ -22,6 +23,7 @@ export default function StudentRegistration({ onLogin }) {
     return () => { active = false; };
   }, []);
   const program = options?.programs.find((item) => item.name === form.program);
+  const availableSemesters = semestersForYear(program, form.year);
   const setField = (key, value) => setForm((current) => ({ ...current, [key]: value }));
   async function submit(event) {
     event.preventDefault();
@@ -70,7 +72,7 @@ export default function StudentRegistration({ onLogin }) {
                 ...current, program: event.target.value, year: '', semester: ''
               }))} required>
                 <option value="">Choose a program</option>{options.programs.map((item) =>
-                  <option key={item.name} value={item.name}>{item.name}</option>)}
+                  <option key={item.name} value={item.name}>{item.name} · {item.code}</option>)}
               </select></label>
               <label>Department<select value={form.department} onChange={(event) => setField('department', event.target.value)} required>
                 <option value="">Choose a department</option>{options.departments.map((item) =>
@@ -84,7 +86,7 @@ export default function StudentRegistration({ onLogin }) {
               </select></label>
               <label>Semester<select value={form.semester} onChange={(event) => setField('semester', event.target.value)} required disabled={!form.year}>
                 <option value="">Choose a semester</option>{program?.semesters.map((semester) =>
-                  <option key={semester} value={semester}>{semester}</option>)}
+                  <option key={semester} value={semester} disabled={!availableSemesters.includes(semester)}>{semester}</option>)}
               </select></label>
             </>}
             {step === 2 && <>

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { api } from '../api.js';
+import { semestersForYear } from '../academic-cohort.js';
 import { Alert, Field, FormSteps, Loading, Pagination, useLoad, usePagination } from '../components/ui.jsx';
 
 export function Programs({ role = 'superadmin' }) {
@@ -13,8 +14,8 @@ export function Programs({ role = 'superadmin' }) {
   const departmentPage = usePagination(departmentCatalog.data || [], 10);
   const [current, setCurrent] = useState(null);
   const [form, setForm] = useState({ name: '', years: '1, 2, 3, 4', semesters: '1, 2, 3, 4, 5, 6, 7, 8' });
-  const [subjectForm, setSubjectForm] = useState({ name: '', code: '', program: '', year: '', semester: '' });
-  const [departmentForm, setDepartmentForm] = useState({ name: '', code: '' });
+  const [subjectForm, setSubjectForm] = useState({ name: '', program: '', departments: [], year: '', semester: '' });
+  const [departmentForm, setDepartmentForm] = useState({ name: '' });
   const [subjectEdit, setSubjectEdit] = useState(null);
   const [departmentEdit, setDepartmentEdit] = useState(null);
   const [section, setSection] = useState('Degrees');
@@ -22,6 +23,7 @@ export function Programs({ role = 'superadmin' }) {
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const available = programs.data?.find((program) => program.name === subjectForm.program);
+  const availableSemesters = semestersForYear(available, subjectForm.year);
   function numbers(value) { return value.split(',').map((item) => Number(item.trim())).filter((item) => Number.isInteger(item) && item > 0); }
   async function saveProgram(event) {
     event.preventDefault(); setSaving(true); setError('');
@@ -39,7 +41,7 @@ export function Programs({ role = 'superadmin' }) {
         body: { ...subjectForm, year: Number(subjectForm.year), semester: Number(subjectForm.semester) }
       });
       setSubjectEdit(null);
-      setSubjectForm({ ...subjectForm, name: '', code: '' }); setSubjectStep(0); await subjects.load();
+      setSubjectForm({ ...subjectForm, name: '' }); setSubjectStep(0); await subjects.load();
     } catch (reason) { setError(reason.message); } finally { setSaving(false); }
   }
   async function saveDepartment(event) {
@@ -48,7 +50,7 @@ export function Programs({ role = 'superadmin' }) {
       await api(departmentEdit ? `/departments/${departmentEdit}` : '/departments', {
         method: departmentEdit ? 'PUT' : 'POST', body: departmentForm
       });
-      setDepartmentEdit(null); setDepartmentForm({ name: '', code: '' }); await Promise.all([departments.load(), departmentCatalog.load(), subjects.load()]);
+      setDepartmentEdit(null); setDepartmentForm({ name: '' }); await Promise.all([departments.load(), departmentCatalog.load(), subjects.load()]);
     } catch (reason) { setError(reason.message); } finally { setSaving(false); }
   }
   if (programs.loading || subjects.loading || departments.loading || departmentCatalog.loading) return <Loading />;
@@ -60,60 +62,75 @@ export function Programs({ role = 'superadmin' }) {
           {['Degrees', 'Subjects', 'Departments'].map((item) => <button type="button" role="tab" aria-selected={section === item}
             className={section === item ? 'selected' : ''} key={item} onClick={() => setSection(item)}>{item}</button>)}
         </div>
-        {section === 'Degrees' && <div className="table-scroll"><table><thead><tr><th>Degree / program</th><th>Years</th><th>Semesters</th>{canManage && <th />}</tr></thead><tbody>
-          {degreePage.rows.map((program) => <tr key={program._id}><td>{program.name}</td><td>{program.years.join(', ')}</td>
+        {section === 'Degrees' && <div className="table-scroll"><table><thead><tr><th>Degree / program</th><th>Code</th><th>Years</th><th>Semesters</th>{canManage && <th />}</tr></thead><tbody>
+          {degreePage.rows.map((program) => <tr key={program._id}><td>{program.name}</td><td>{program.code}</td><td>{program.years.join(', ')}</td>
             <td>{program.semesters.join(', ')}</td>{canManage && <td><button className="text-button" onClick={() => {
               setCurrent(program._id); setForm({ name: program.name, years: program.years.join(', '), semesters: program.semesters.join(', ') });
             }}>Edit</button></td>}</tr>)}
         </tbody></table>{!programs.data?.length && <div className="empty-state">Add a degree or program to get started.</div>}
           <Pagination {...degreePage} onPageChange={degreePage.setPage} /></div>}
-        {section === 'Subjects' && <div className="table-scroll"><table><thead><tr><th>Code</th><th>Subject</th><th>Program</th><th>Year</th><th>Semester</th>{canManage && <th />}</tr></thead>
+        {section === 'Subjects' && <div className="table-scroll"><table><thead><tr><th>Code</th><th>Subject</th><th>Program</th><th>Department</th><th>Year</th><th>Semester</th>{canManage && <th />}</tr></thead>
             <tbody>{subjectPage.rows.map((subject) => <tr key={subject._id}><td>{subject.code}</td><td>{subject.name}</td>
-            <td>{subject.program}</td><td>{subject.year}</td><td>{subject.semester}</td>{canManage && <td><button type="button" className="text-button" onClick={() => {
-              setSubjectEdit(subject._id); setSubjectForm({ name: subject.name, code: subject.code, program: subject.program, year: String(subject.year), semester: String(subject.semester) });
+            <td>{subject.program}</td><td>{subject.departments?.length ? subject.departments.join(', ') : subject.department || 'Not mapped'}</td><td>{subject.year}</td><td>{subject.semester}</td>{canManage && <td><button type="button" className="text-button" onClick={() => {
+              setSubjectEdit(subject._id); setSubjectForm({ name: subject.name, program: subject.program, departments: subject.departments?.length ? subject.departments : subject.department ? [subject.department] : [], year: String(subject.year), semester: String(subject.semester) });
             }}>Edit</button></td>}</tr>)}</tbody></table>
             {!subjects.data?.length && <div className="empty-state">Subjects will appear here after you add them.</div>}
             <Pagination {...subjectPage} onPageChange={subjectPage.setPage} /></div>}
         {section === 'Departments' && <div className="table-scroll"><table><thead><tr><th>Department</th><th>Code</th><th>Setup</th></tr></thead>
           <tbody>{departmentPage.rows.map((department) => <tr key={department.name}><td>{department.name}</td><td>{department.code}</td>
             <td>{department.legacy ? 'Existing records' : <>{canManage && <button type="button" className="text-button" onClick={() => {
-              setDepartmentEdit(department._id); setDepartmentForm({ name: department.name, code: department.code });
+              setDepartmentEdit(department._id); setDepartmentForm({ name: department.name });
             }}>Edit</button>}</>}</td></tr>)}</tbody></table>
           {!departmentCatalog.data?.length && <div className="empty-state">Create departments for students and exam schedules.</div>}
           <Pagination {...departmentPage} onPageChange={departmentPage.setPage} /></div>}
       </section>
       {canManage ? <section className="panel form-panel">
-        {section === 'Degrees' && <><h2>{current ? 'Edit degree' : 'Add degree'}</h2><p className="subtle">Set up a degree or program and its study years and semesters.</p><form onSubmit={saveProgram}>
+        {section === 'Degrees' && <><h2>{current ? 'Edit degree' : 'Add degree'}</h2><p className="subtle">Set up a degree or program and its study years and semesters. Its unique code is generated from the first two letters and four digits.</p><form onSubmit={saveProgram}>
         <Field label="Program name" value={form.name} setValue={(name) => setForm({ ...form, name })} />
         <Field label="Years (comma-separated, e.g. 1, 2, 3)" value={form.years} setValue={(years) => setForm({ ...form, years })} />
         <Field label="Semesters (comma-separated, e.g. 1–6)" value={form.semesters} setValue={(semesters) => setForm({ ...form, semesters })} />
         <div className="toolbar-actions"><button className="primary" disabled={saving}>{current ? 'Save changes' : 'Add program'}</button>
           {current && <button type="button" className="outline" onClick={() => { setCurrent(null); setForm({ name: '', years: '1, 2, 3, 4', semesters: '1, 2, 3, 4, 5, 6, 7, 8' }); }}>Cancel edit</button>}</div>
         </form></>}
-        {section === 'Subjects' && <><h2>{subjectEdit ? 'Edit subject' : 'Add subject'}</h2><p className="subtle">Connect each subject to its degree, year and semester.</p>
+        {section === 'Subjects' && <><h2>{subjectEdit ? 'Edit subject' : 'Add subject'}</h2><p className="subtle">Connect each subject to its degree, department, year and semester. Course codes are generated from the department.</p>
         <FormSteps steps={['Subject', 'Cohort']} current={subjectStep} onStep={setSubjectStep} />
         <form onSubmit={subjectStep === 1 ? saveSubject : (event) => { event.preventDefault(); setError(''); setSubjectStep(1); }}>
         {subjectStep === 0 && <div className="setup-step">
         <Field label="Subject name" value={subjectForm.name} setValue={(name) => setSubjectForm({ ...subjectForm, name })} />
-        <Field label="Subject code" value={subjectForm.code} setValue={(code) => setSubjectForm({ ...subjectForm, code })} />
+        <p className="subtle">Code: {subjectEdit ? subjects.data?.find((subject) => subject._id === subjectEdit)?.code : 'Generated when saved (department prefix + 4 digits)'}</p>
         </div>}
         {subjectStep === 1 && <div className="setup-step">
-        <label>Program<select required value={subjectForm.program} onChange={(event) => setSubjectForm({ ...subjectForm, program: event.target.value, year: '', semester: '' })}>
+        <label>Program<select required value={subjectForm.program} onChange={(event) => setSubjectForm({ ...subjectForm, program: event.target.value, departments: [], year: '', semester: '' })}>
           <option value="">Choose a program</option>{programs.data?.map((program) => <option key={program._id}>{program.name}</option>)}</select></label>
-        <label>Year<select required disabled={!available} value={subjectForm.year} onChange={(event) => setSubjectForm({ ...subjectForm, year: event.target.value })}>
+        <fieldset className="department-options" disabled={!subjectForm.program}>
+          <legend>Departments this subject is taught in</legend>
+          {departmentCatalog.data?.filter((department) => !department.legacy).map((department) =>
+            <label key={department._id} className="check-option">
+              <input type="checkbox" checked={subjectForm.departments.includes(department.name)}
+                onChange={() => setSubjectForm((old) => ({
+                  ...old,
+                  departments: old.departments.includes(department.name)
+                    ? old.departments.filter((name) => name !== department.name)
+                    : [...old.departments, department.name]
+                }))} />
+              {department.name}
+            </label>)}
+          <p className="subtle">Select multiple departments for a shared course such as mathematics.</p>
+        </fieldset>
+        <label>Year<select required disabled={!available} value={subjectForm.year} onChange={(event) => setSubjectForm({ ...subjectForm, year: event.target.value, semester: '' })}>
           <option value="">Choose a year</option>{available?.years.map((year) => <option key={year}>{year}</option>)}</select></label>
         <label>Semester<select required disabled={!subjectForm.year} value={subjectForm.semester} onChange={(event) => setSubjectForm({ ...subjectForm, semester: event.target.value })}>
-          <option value="">Choose a semester</option>{available?.semesters.map((semester) => <option key={semester}>{semester}</option>)}</select></label>
+          <option value="">Choose a semester</option>{availableSemesters.map((semester) => <option key={semester}>{semester}</option>)}</select></label>
         </div>}
         <div className="wizard-actions">{subjectStep > 0 && <button type="button" className="outline" onClick={() => setSubjectStep(0)}>Back</button>}
           <button className="primary" disabled={saving}>{subjectStep === 1 ? (subjectEdit ? 'Save subject' : 'Add subject') : 'Continue'}</button>
-          {subjectEdit && <button type="button" className="outline" onClick={() => { setSubjectEdit(null); setSubjectForm({ name: '', code: '', program: '', year: '', semester: '' }); setSubjectStep(0); }}>Cancel edit</button>}</div>
+          {subjectEdit && <button type="button" className="outline" onClick={() => { setSubjectEdit(null); setSubjectForm({ name: '', program: '', departments: [], year: '', semester: '' }); setSubjectStep(0); }}>Cancel edit</button>}</div>
         </form></>}
         {section === 'Departments' && <><h2>{departmentEdit ? 'Edit department' : 'Add department'}</h2><p className="subtle">Create a department once, then assign it to students and officer access.</p><form onSubmit={saveDepartment}>
           <Field label="Department name" value={departmentForm.name} setValue={(name) => setDepartmentForm({ ...departmentForm, name })} />
-          <Field label="Department code" value={departmentForm.code} setValue={(code) => setDepartmentForm({ ...departmentForm, code: code.toUpperCase() })} />
+          <p className="subtle">Code: {departmentEdit ? departmentCatalog.data?.find((department) => department._id === departmentEdit)?.code : 'Generated from the first two letters + 4 digits'}</p>
           <div className="toolbar-actions"><button className="primary" disabled={saving}>{departmentEdit ? 'Save department' : 'Add department'}</button>
-            {departmentEdit && <button type="button" className="outline" onClick={() => { setDepartmentEdit(null); setDepartmentForm({ name: '', code: '' }); }}>Cancel edit</button>}</div>
+            {departmentEdit && <button type="button" className="outline" onClick={() => { setDepartmentEdit(null); setDepartmentForm({ name: '' }); }}>Cancel edit</button>}</div>
         </form></>}
         <Alert error={error || programs.error || subjects.error || departments.error || departmentCatalog.error} /></section>
         : <section className="panel form-panel"><span className="eyebrow">OFFICER ACCESS</span><h2>Academic reference</h2>

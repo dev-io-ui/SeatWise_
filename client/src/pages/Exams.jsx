@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api.js';
+import { semestersForYear } from '../academic-cohort.js';
 import { Alert, Field, FormSteps, Loading, Pagination, useLoad, usePagination } from '../components/ui.jsx';
 
 export function Exams({ role }) {
@@ -8,7 +9,7 @@ export function Exams({ role }) {
   const subjects = useLoad('/subjects');
   const programs = useLoad('/programs');
   const departments = useLoad('/departments');
-  const [form, setForm] = useState({ name: '', examType: 'Mid-semester', program: '', year: '', semester: '', subjectId: '', date: '', startTime: '09:00', endTime: '12:00', departments: [] });
+  const [form, setForm] = useState({ name: '', examType: 'Mid-semester', program: '', department: '', year: '', semester: '', subjectId: '', date: '', startTime: '09:00', endTime: '12:00', departments: [] });
   const [allDepartments, setAllDepartments] = useState(role !== 'officer');
   const [eligibility, setEligibility] = useState(null);
   const [eligibilityError, setEligibilityError] = useState('');
@@ -21,9 +22,15 @@ export function Exams({ role }) {
   const [step, setStep] = useState(0);
   const [editingExam, setEditingExam] = useState(null);
   const setField = (key, value, resets = []) => setForm((old) => ({ ...old, [key]: value, ...Object.fromEntries(resets.map((item) => [item, ''])) }));
+  const earliestExamDate = new Date().toISOString().slice(0, 10);
   const program = programs.data?.find((item) => item.name === form.program);
+  const availableSemesters = semestersForYear(program, form.year);
   const subjectsFiltered = (subjects.data || []).filter((subject) =>
-    subject.program === form.program && String(subject.year) === form.year && String(subject.semester) === form.semester);
+    subject.program === form.program && String(subject.year) === form.year &&
+    String(subject.semester) === form.semester &&
+    (subject.departments?.length
+      ? subject.departments.includes(form.department)
+      : !subject.department || subject.department === form.department));
   const departmentsKey = form.departments.join(',');
   useEffect(() => {
     if (!form.subjectId) {
@@ -128,6 +135,7 @@ export function Exams({ role }) {
               setEditingExam(exam);
               setForm({
                 name: exam.name, examType: exam.examType || 'Other', program: exam.program,
+                department: subject?.department || exam.departments?.[0] || exam.cohortDepartments?.[0] || '',
                 year: String(exam.year), semester: String(exam.semester), subjectId: subject?._id || '',
                 date: new Date(exam.date).toISOString().slice(0, 10), startTime: exam.startTime, endTime: exam.endTime,
                 departments: selectedDepartments
@@ -150,9 +158,13 @@ export function Exams({ role }) {
           {step === 0 && <div className="setup-step">
           <h3>Which course is this for?</h3>
           <label>Degree / program<select required value={form.program} onChange={(event) => setForm((old) => ({
-            ...old, program: event.target.value, year: '', semester: '', subjectId: '', departments: []
+            ...old, program: event.target.value, department: '', year: '', semester: '', subjectId: '', departments: []
           }))}>
             <option value="">Choose a program</option>{programs.data?.map((item) => <option key={item._id}>{item.name}</option>)}</select></label>
+          <label>Department<select required disabled={!form.program} value={form.department} onChange={(event) => setForm((old) => ({
+            ...old, department: event.target.value, subjectId: '', departments: []
+          }))}>
+            <option value="">Choose a department</option>{departments.data?.map((department) => <option key={department}>{department}</option>)}</select></label>
           <label>Year<select required disabled={!program} value={form.year} onChange={(event) => setForm((old) => ({
             ...old, year: event.target.value, semester: '', subjectId: '', departments: []
           }))}>
@@ -160,11 +172,13 @@ export function Exams({ role }) {
           <label>Semester<select required disabled={!form.year} value={form.semester} onChange={(event) => setForm((old) => ({
             ...old, semester: event.target.value, subjectId: '', departments: []
           }))}>
-            <option value="">Choose a semester</option>{program?.semesters.map((semester) => <option key={semester}>{semester}</option>)}</select></label>
-          <label>Subject<select required disabled={!form.semester} value={form.subjectId} onChange={(event) => {
+            <option value="">Choose a semester</option>{availableSemesters.map((semester) => <option key={semester}>{semester}</option>)}</select></label>
+          <label>Subject<select required disabled={!form.department || !form.semester} value={form.subjectId} onChange={(event) => {
             setField('subjectId', event.target.value); setForm((old) => ({ ...old, subjectId: event.target.value, departments: [] }));
           }}>
             <option value="">Choose a subject</option>{subjectsFiltered.map((subject) => <option key={subject._id} value={subject._id}>{subject.name} · {subject.code}</option>)}</select></label>
+          {form.department && form.semester && !subjectsFiltered.length &&
+            <p className="subtle">No subjects are mapped to {form.department} for year {form.year}, semester {form.semester}.</p>}
           {form.subjectId && <div className="cohort-preview" aria-live="polite">
             <label className="check-option"><input type="checkbox" checked={allDepartments} disabled={eligibility && !eligibility.allDepartmentsAllowed}
               onChange={(event) => setAllDepartments(event.target.checked)} />
@@ -196,7 +210,7 @@ export function Exams({ role }) {
           <label>Exam type<select required value={form.examType} onChange={(event) => setField('examType', event.target.value)}>
             {['Mid-semester', 'End-semester', 'Class Test (CL)', 'Quiz', 'Practical', 'Other'].map((type) => <option key={type}>{type}</option>)}
           </select></label>
-          <Field label="Date" type="date" value={form.date} setValue={(value) => setField('date', value)} />
+          <Field label="Date" type="date" min={earliestExamDate} value={form.date} setValue={(value) => setField('date', value)} />
           <div className="form-row"><Field label="Start time" type="time" value={form.startTime} setValue={(value) => setField('startTime', value)} />
             <Field label="End time" type="time" value={form.endTime} setValue={(value) => setField('endTime', value)} /></div>
           </div>}

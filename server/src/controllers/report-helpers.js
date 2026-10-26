@@ -34,19 +34,27 @@ export async function loadPlan(examId, hallId) {
 
 export function drawTable(doc, title, headers, widths, rows) {
   const margin = 32, pageBottom = doc.page.height - 32, rowHeight = 23;
+  const availableWidth = doc.page.width - margin * 2;
+  const requestedWidth = widths.reduce((total, width) => total + width, 0);
+  const scale = requestedWidth > availableWidth ? availableWidth / requestedWidth : 1;
+  const columnWidths = widths.map((width) => width * scale);
   const renderTitle = () => {
-    doc.font('Helvetica-Bold').fontSize(15).text(title, margin, 24, { lineBreak: false });
+    doc.font('Helvetica-Bold').fontSize(15).text(title, margin, 24, { width: availableWidth, lineBreak: false, ellipsis: true });
     doc.font('Helvetica').fontSize(8).text(`Generated ${new Date().toLocaleString()}`, margin, 44, { lineBreak: false });
   };
   const renderHeader = () => {
+    const headerY = doc.y;
     let x = margin;
     doc.font('Helvetica-Bold').fontSize(8);
     headers.forEach((header, i) => {
-      doc.rect(x, doc.y, widths[i], rowHeight).fill('#e9edfb').stroke('#c8d0e3');
-      doc.fillColor('#182033').text(header, x + 4, doc.y + 7, { lineBreak: false });
-      x += widths[i];
+      const width = columnWidths[i];
+      doc.rect(x, headerY, width, rowHeight).fill('#e9edfb').stroke('#c8d0e3');
+      doc.fillColor('#182033').text(header, x + 4, headerY + 7, {
+        width: Math.max(0, width - 8), lineBreak: false, ellipsis: true, align: 'center'
+      });
+      x += width;
     });
-    doc.y += rowHeight;
+    doc.y = headerY + rowHeight;
     doc.font('Helvetica').fontSize(8);
   };
   renderTitle();
@@ -62,13 +70,16 @@ export function drawTable(doc, title, headers, widths, rows) {
     const y = doc.y;
     let x = margin;
     row.forEach((value, i) => {
-      doc.rect(x, y, widths[i], rowHeight).stroke('#dfe4ef');
+      const width = columnWidths[i];
+      doc.rect(x, y, width, rowHeight).stroke('#dfe4ef');
       const text = String(value ?? '');
-      const maxWidth = widths[i] - 8;
+      const maxWidth = width - 8;
       let fitted = text;
       while (fitted.length > 1 && doc.widthOfString(fitted) > maxWidth) fitted = `${fitted.slice(0, -2)}…`;
-      doc.fillColor('#182033').text(fitted, x + 4, y + 7, { lineBreak: false });
-      x += widths[i];
+      doc.fillColor('#182033').text(fitted, x + 4, y + 7, {
+        width: Math.max(0, maxWidth), lineBreak: false, ellipsis: true
+      });
+      x += width;
     });
     doc.y += rowHeight;
   });

@@ -18,6 +18,12 @@ const NAV = {
   student: ['Overview', 'My Exams', 'Study Resources', 'Documents', 'Exam Guide']
 };
 
+function sectionFromLocation(role) {
+  const defaultSection = role === 'student' ? 'Overview' : 'Dashboard';
+  const section = new URLSearchParams(window.location.search).get('section');
+  return NAV[role]?.includes(section) ? section : defaultSection;
+}
+
 export default function App() {
   const [user, setUser] = useState(null);
   const [ready, setReady] = useState(false);
@@ -28,15 +34,28 @@ export default function App() {
   useEffect(() => {
     api('/auth/me').then((result) => {
       setUser(result.user);
-      if (result.user.role === 'student') setTab('Overview');
+      setTab(sectionFromLocation(result.user.role));
     }).catch(() => {}).finally(() => setReady(true));
   }, []);
+  useEffect(() => {
+    if (!user) return undefined;
+    const restoreSection = () => setTab(sectionFromLocation(user.role));
+    window.addEventListener('popstate', restoreSection);
+    return () => window.removeEventListener('popstate', restoreSection);
+  }, [user]);
+  function navigateToSection(section) {
+    setTab(section);
+    const url = new URL(window.location.href);
+    if (url.searchParams.get('section') === section) return;
+    url.searchParams.set('section', section);
+    window.history.pushState({ section }, '', `${url.pathname}${url.search}${url.hash}`);
+  }
   if (!ready) return <main className="boot-loader"><span className="brand-mark">SW</span><span>SeatWise</span></main>;
   if (!user) {
     const showLogin = () => { setRegister(false); setLogin(true); };
     const showRegistration = () => { setRegister(true); setLogin(false); };
     if (register) return <StudentRegistration onLogin={showLogin} />;
-    if (login) return <Login onLogin={(nextUser) => { setUser(nextUser); setTab(nextUser.role === 'student' ? 'Overview' : 'Dashboard'); }} onRegister={showRegistration} />;
+    if (login) return <Login onLogin={(nextUser) => { setUser(nextUser); setTab(sectionFromLocation(nextUser.role)); }} onRegister={showRegistration} />;
     return <Landing onLogin={showLogin} onRegister={showRegistration} />;
   }
   const Page = user.role === 'officer' && tab === 'Students' ? OfficerStudents : PAGES[tab] || Dashboard;
@@ -50,9 +69,9 @@ export default function App() {
   return (
     <div className="portal-shell">
       <aside className="sidebar">
-        <button className="brand-button" onClick={() => setTab(user.role === 'student' ? 'Overview' : 'Dashboard')}><span className="brand-mark">SW</span><span>SeatWise</span></button>
+        <button className="brand-button" onClick={() => navigateToSection(user.role === 'student' ? 'Overview' : 'Dashboard')}><span className="brand-mark">SW</span><span>SeatWise</span></button>
         <small className="nav-label">{user.role === 'student' ? 'STUDENT TOOLS' : 'WORKSPACE'}</small>
-        <nav>{links.map((name) => <button key={name} title={titles[name] || name} aria-label={titles[name] || name} className={tab === name ? 'active' : ''} onClick={() => setTab(name)}>
+        <nav>{links.map((name) => <button key={name} title={titles[name] || name} aria-label={titles[name] || name} className={tab === name ? 'active' : ''} onClick={() => navigateToSection(name)}>
           <span className="nav-icon">{name === 'Planner' || name === 'My Exams' ? '▦' : name === 'Dashboard' || name === 'Overview' ? '⌂' : name === 'AuditLog' || name === 'Exam Guide' ? '◷' : name === 'Documents' ? '⇩' : name === 'Study Resources' ? '↗' : name.slice(0, 1)}</span>
           {titles[name] || name}
         </button>)}</nav>
@@ -65,7 +84,7 @@ export default function App() {
             <span className="user-avatar">{user.name.slice(0, 1).toUpperCase()}</span><span className="welcome-user">{user.name}<small>View profile</small></span>
           </button><button className="logout-button" onClick={logout}>Log out</button></div>
         </header>
-        <main className="workspace-content">{user.role === 'student' ? <StudentView user={user} tab={tab} setTab={setTab} /> : <Page role={user.role} />}</main>
+        <main className="workspace-content">{user.role === 'student' ? <StudentView user={user} tab={tab} setTab={navigateToSection} /> : <Page role={user.role} />}</main>
       </div>
       {profileOpen && <ProfileDialog user={user} onClose={() => setProfileOpen(false)} onUpdated={setUser} />}
     </div>

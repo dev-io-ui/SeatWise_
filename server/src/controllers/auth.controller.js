@@ -26,7 +26,7 @@ export const post_auth_login_1 = wrap(async (q, s) => {
 
 export const get_auth_registration_options_2 = wrap(async (q, s) => {
   const [programs, departments] = await Promise.all([
-    Program.find().sort('name').select('name years semesters').lean(),
+    Program.find().sort('name').select('name code years semesters').lean(),
     Department.find({ active: true }).sort('name').select('name').lean()
   ]);
   s.json({ programs, departments: departments.map((item) => item.name) });

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { api } from '../api.js';
+import { semestersForYear } from '../academic-cohort.js';
 import { Alert, Field, FormSteps, Loading, Pagination, useLoad } from '../components/ui.jsx';
 
 export function Students() {
@@ -19,6 +20,9 @@ export function Students() {
   const [editing, setEditing] = useState(null);
   const [editForm, setEditForm] = useState(null);
   const cohort = programs.data?.find((program) => program.name === form.program);
+  const formSemesters = semestersForYear(cohort, form.year);
+  const editCohort = programs.data?.find((program) => program.name === editForm?.program);
+  const editSemesters = semestersForYear(editCohort, editForm?.year);
   const shown = students.data?.items || [];
   const setField = (key, value) => setForm((old) => ({ ...old, [key]: value }));
   async function addStudent(event) {
@@ -127,10 +131,10 @@ export function Students() {
               <option value="">Choose a program</option>{programs.data?.map((program) => <option key={program._id}>{program.name}</option>)}</select></label>
               <label>Department<select required value={editForm.department} onChange={(event) => setEditForm({ ...editForm, department: event.target.value })}>
                 {departments.data?.map((department) => <option key={department}>{department}</option>)}</select></label></div>
-            <div className="form-row"><label>Year<select required value={editForm.year} onChange={(event) => setEditForm({ ...editForm, year: event.target.value })}>
+            <div className="form-row"><label>Year<select required value={editForm.year} onChange={(event) => setEditForm({ ...editForm, year: event.target.value, semester: '' })}>
               {(programs.data?.find((program) => program.name === editForm.program)?.years || []).map((year) => <option key={year}>{year}</option>)}</select></label>
               <label>Semester<select required value={editForm.semester} onChange={(event) => setEditForm({ ...editForm, semester: event.target.value })}>
-                {(programs.data?.find((program) => program.name === editForm.program)?.semesters || []).map((semester) => <option key={semester}>{semester}</option>)}</select></label></div>
+                {editSemesters.map((semester) => <option key={semester}>{semester}</option>)}</select></label></div>
             <Field label="Section" required={false} value={editForm.section} setValue={(section) => setEditForm({ ...editForm, section })} />
             <button className="primary" disabled={saving}>{saving ? 'Saving…' : 'Save student changes'}</button>
           </form>}
@@ -170,10 +174,10 @@ export function Students() {
         <label>Department<select required value={form.department} onChange={(event) => setField('department', event.target.value)}>
           <option value="">Choose a department</option>{departments.data?.map((department) => <option key={department}>{department}</option>)}
         </select></label>
-        <label>Year<select required disabled={!cohort} value={form.year} onChange={(event) => setField('year', event.target.value)}>
+        <label>Year<select required disabled={!cohort} value={form.year} onChange={(event) => setForm({ ...form, year: event.target.value, semester: '' })}>
           <option value="">Choose a year</option>{cohort?.years.map((year) => <option key={year}>{year}</option>)}</select></label>
         <label>Semester<select required disabled={!form.year} value={form.semester} onChange={(event) => setField('semester', event.target.value)}>
-          <option value="">Choose a semester</option>{cohort?.semesters.map((semester) => <option key={semester}>{semester}</option>)}</select></label>
+          <option value="">Choose a semester</option>{formSemesters.map((semester) => <option key={semester}>{semester}</option>)}</select></label>
         <Field label="Section" required={false} value={form.section} setValue={(value) => setField('section', value)} />
         </div>}
         <div className="wizard-actions">{step > 0 && <button type="button" className="outline" onClick={() => setStep((current) => current - 1)}>Back</button>}

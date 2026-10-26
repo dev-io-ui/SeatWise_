@@ -21,7 +21,7 @@ app.use((e, q, s, n) => e instanceof ZodError
           : (console.error(e), s.status(e.status || 500).json({ error: e.status ? e.message : 'Server error' })));
 await mongoose.connect(process.env.MONGO_URI);
 const migration = await migrateLegacyData();
-if (migration.migratedFloors || migration.migratedPlans || migration.synchronizedPrograms) {
-  console.log(`SeatWise compatibility migration: ${migration.migratedFloors} floors, ${migration.migratedPlans} plans, ${migration.synchronizedPrograms} programs.`);
+if (migration.migratedFloors || migration.migratedPlans || migration.synchronizedPrograms || migration.mergedCommonSubjects) {
+  console.log(`SeatWise compatibility migration: ${migration.migratedFloors} floors, ${migration.migratedPlans} plans, ${migration.synchronizedPrograms} programs, ${migration.mergedCommonSubjects} shared subjects.`);
 }
 app.listen(process.env.PORT || 5000, () => console.log('SeatWise API up'));

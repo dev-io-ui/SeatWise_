@@ -1,7 +1,15 @@
 import { createHash } from 'node:crypto';
 import { AllocationPlan, Building, Department, Exam, Floor, Hall, Program, SeatingAllocation, Student, Subject } from '../models/index.js';
+import { academicCodePrefix, generateAcademicCode } from '../academics/codes.js';
+import { subjectDepartmentNames } from '../academics/subject-departments.js';
 
 const floorCode = (name) => `LEGACY-${createHash('sha1').update(name).digest('hex').slice(0, 10).toUpperCase()}`;
+const sharedFirstYearSubjects = new Set([
+  'Engineering Mathematics I',
+  'Engineering Physics',
+  'Engineering Mathematics II',
+  'Engineering Chemistry'
+]);
 
 export async function migrateLegacyData() {
   let migratedFloors = 0;
@@ -28,14 +36,22 @@ export async function migrateLegacyData() {
     if (Number.isInteger(item.semester) && item.semester > 0) cohorts.get(item.program).semesters.add(item.semester);
   }
   for (const [name, cohort] of cohorts) {
-    await Program.updateOne(
-      { name },
-      {
-        $setOnInsert: { name },
-        $addToSet: { years: { $each: [...cohort.years].sort((a, b) => a - b) }, semesters: { $each: [...cohort.semesters].sort((a, b) => a - b) } }
-      },
-      { upsert: true }
-    );
+    let program = await Program.findOne({ name });
+    if (!program) {
+      program = await Program.create({
+        name, code: await generateAcademicCode(name),
+        years: [...cohort.years].sort((a, b) => a - b),
+        semesters: [...cohort.semesters].sort((a, b) => a - b)
+      });
+    } else {
+      await Program.updateOne(
+        { _id: program._id },
+        { $addToSet: {
+          years: { $each: [...cohort.years].sort((a, b) => a - b) },
+          semesters: { $each: [...cohort.semesters].sort((a, b) => a - b) }
+        } }
+      );
+    }
   }
   const departmentNames = await Student.distinct('department', { active: true });
   for (const name of departmentNames.map((value) => String(value || '').trim()).filter(Boolean)) {
@@ -45,6 +61,63 @@ export async function migrateLegacyData() {
       code = `${code.slice(0, 7)}${createHash('sha1').update(name).digest('hex').slice(0, 4).toUpperCase()}`;
     }
     await Department.updateOne({ name }, { $setOnInsert: { name, code } }, { upsert: true });
+  }
+  const usedAcademicCodes = new Set();
+  for (const program of await Program.find()) {
+    const prefix = academicCodePrefix(program.name);
+    if (!new RegExp(`^${prefix}\\d{4}$`).test(program.code || '') || usedAcademicCodes.has(program.code)) {
+      program.code = await generateAcademicCode(program.name);
+      await program.save();
+    }
+    usedAcademicCodes.add(program.code);
+  }
+  for (const department of await Department.find()) {
+    const prefix = academicCodePrefix(department.name);
+    if (!new RegExp(`^${prefix}\\d{4}$`).test(department.code || '') || usedAcademicCodes.has(department.code)) {
+      department.code = await generateAcademicCode(department.name);
+      await department.save();
+    }
+    usedAcademicCodes.add(department.code);
+  }
+  const departmentCodes = new Map((await Department.find({}, 'name code')).map((department) => [department.name, department.code]));
+  for (const subject of await Subject.find()) {
+    const prefix = subject.department && departmentCodes.has(subject.department)
+      ? departmentCodes.get(subject.department).slice(0, 2)
+      : academicCodePrefix(subject.program || subject.name);
+    if (!new RegExp(`^${prefix}\\d{4}$`).test(subject.code || '') || usedAcademicCodes.has(subject.code)) {
+      const previousCode = subject.code;
+      subject.code = await generateAcademicCode(prefix);
+      await subject.save();
+      if (previousCode) {
+        await Exam.updateMany(
+          { subject: subject.name, subjectCode: previousCode, program: subject.program, year: subject.year, semester: subject.semester },
+          { $set: { subjectCode: subject.code } }
+        );
+      }
+    }
+    usedAcademicCodes.add(subject.code);
+  }
+  let mergedCommonSubjects = 0;
+  for (const commonName of sharedFirstYearSubjects) {
+    for (const semester of [1, 2]) {
+      const matches = await Subject.find({
+        name: commonName, year: 1, semester, program: { $exists: true }
+      }).sort('_id');
+      if (matches.length < 2) continue;
+      const [canonical, ...duplicates] = matches;
+      const mappedDepartments = [...new Set(matches.flatMap(subjectDepartmentNames))];
+      canonical.department = undefined;
+      canonical.departments = mappedDepartments;
+      await canonical.save();
+      for (const duplicate of duplicates) {
+        await Exam.updateMany(
+          { subject: duplicate.name, subjectCode: duplicate.code, program: duplicate.program, year: duplicate.year, semester: duplicate.semester },
+          { $set: { subjectCode: canonical.code } }
+        );
+        await Subject.deleteOne({ _id: duplicate._id });
+        mergedCommonSubjects++;
+      }
+    }
   }
   await Exam.collection.updateMany(
     { $or: [{ departments: { $exists: false } }, { departments: { $size: 0 } }], department: { $type: 'string', $ne: '' } },
@@ -65,5 +138,5 @@ export async function migrateLegacyData() {
     );
     if (result.upsertedCount) migratedPlans++;
   }
-  return { migratedFloors, migratedPlans, synchronizedPrograms: cohorts.size };
+  return { migratedFloors, migratedPlans, synchronizedPrograms: cohorts.size, mergedCommonSubjects };
 }

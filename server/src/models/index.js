@@ -1,5 +1,5 @@
 export { User } from './User.js';
-export { Program, Department } from './Academic.js';
+export { Program, Department, AcademicCodeSequence } from './Academic.js';
 export { Student } from './Student.js';
 export { Subject } from './Subject.js';
 export { Building, Floor, Hall } from './Location.js';

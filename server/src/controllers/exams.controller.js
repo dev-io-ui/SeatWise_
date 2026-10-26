@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { Student, Subject, Exam, ExamResource, Program, Department, AuditLog, SeatingAllocation } from '../models/index.js';
 import { findConflicts } from '../allocation/conflicts.js';
 import { learningFileType } from '../resources/files.js';
+import { subjectDepartmentNames } from '../academics/subject-departments.js';
 import { day, wrap } from './shared.js';
 
 export const post_exams_25 = wrap(async (q, s) => {
@@ -32,6 +33,7 @@ export const post_exams_25 = wrap(async (q, s) => {
   if (body.endTime <= body.startTime) return s.status(400).json({ error: 'End time must be after start time' });
   const date = new Date(`${body.date}T00:00:00.000Z`);
   if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== body.date) return s.status(400).json({ error: 'Invalid exam date' });
+  if (body.date < new Date().toISOString().slice(0, 10)) return s.status(400).json({ error: 'Exam date must be today or later' });
   if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(body.startTime) || !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(body.endTime)) {
     return s.status(400).json({ error: 'Exam time must be a valid 24-hour time' });
   }
@@ -54,10 +56,15 @@ export const post_exams_25 = wrap(async (q, s) => {
   ]);
   const unknownDepartments = departments.filter((name) => !validDepartments.has(name));
   if (unknownDepartments.length) return s.status(400).json({ error: `Unknown or inactive departments: ${unknownDepartments.join(', ')}` });
+  const mappedDepartments = subjectDepartmentNames(subject);
+  if (mappedDepartments.length && departments.some((name) => !mappedDepartments.includes(name))) {
+    return s.status(400).json({ error: `This subject is mapped to ${mappedDepartments.join(', ')}.` });
+  }
+  const eligibleDepartments = departments.length ? departments : mappedDepartments;
   const eligibleFilter = {
-    active: true, program: subject.program, year: subject.year, semester: subject.semester,
-    ...(departments.length && { department: { $in: departments } })
+    active: true, program: subject.program, year: subject.year, semester: subject.semester
   };
+  if (eligibleDepartments.length) eligibleFilter.department = { $in: eligibleDepartments };
   const eligible = await Student.find(eligibleFilter).select('_id');
   if (!eligible.length) return s.status(400).json({
     error: 'No active students match the selected subject cohort and departments',
@@ -72,10 +79,11 @@ export const post_exams_25 = wrap(async (q, s) => {
   }))]);
   if (conflicts.length) return s.status(409).json({ error: 'Timetable clash: some students already have an exam at this time', diagnostics: conflicts });
   const examName = body.name || `${body.examType} · ${subject.name}`;
+  const examDepartments = eligibleDepartments.length ? eligibleDepartments : departments;
   const exam = await Exam.create({
     name: examName, examType: body.examType, subject: subject.name, subjectCode: subject.code, program: subject.program,
-    year: subject.year, semester: subject.semester, departments,
-    department: departments.length === 1 ? departments[0] : undefined,
+    year: subject.year, semester: subject.semester, departments: examDepartments,
+    department: examDepartments.length === 1 ? examDepartments[0] : undefined,
     date: start, startTime: body.startTime, endTime: body.endTime, eligible: eligible.map((x) => x._id)
   });
   const links = body.resources.map((resource) => ({ ...resource, exam: exam._id, kind: 'link', createdBy: q.user._id }));
@@ -128,6 +136,7 @@ export const put_exams_id_37 = wrap(async (q, s) => {
   if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== body.date) {
     return s.status(400).json({ error: 'Invalid exam date' });
   }
+  if (body.date < new Date().toISOString().slice(0, 10)) return s.status(400).json({ error: 'Exam date must be today or later' });
   const departments = [...new Set(body.departments)];
   const departmentScope = q.user.scope?.departments || [];
   if (q.user.role === 'officer' && departmentScope.length) {
@@ -146,10 +155,17 @@ export const put_exams_id_37 = wrap(async (q, s) => {
   ]);
   const unknownDepartments = departments.filter((name) => !validDepartments.has(name));
   if (unknownDepartments.length) return s.status(400).json({ error: `Unknown or inactive departments: ${unknownDepartments.join(', ')}` });
-  const eligible = await Student.find({
-    active: true, program: exam.program, year: exam.year, semester: exam.semester,
-    ...(departments.length && { department: { $in: departments } })
-  }).select('_id');
+  const subject = await Subject.findOne({
+    name: exam.subject, code: exam.subjectCode, program: exam.program, year: exam.year, semester: exam.semester
+  });
+  const mappedDepartments = subject ? subjectDepartmentNames(subject) : [];
+  if (mappedDepartments.length && departments.some((name) => !mappedDepartments.includes(name))) {
+    return s.status(400).json({ error: `This subject is mapped to ${mappedDepartments.join(', ')}.` });
+  }
+  const eligibleDepartments = departments.length ? departments : mappedDepartments;
+  const eligibleFilter = { active: true, program: exam.program, year: exam.year, semester: exam.semester };
+  if (eligibleDepartments.length) eligibleFilter.department = { $in: eligibleDepartments };
+  const eligible = await Student.find(eligibleFilter).select('_id');
   if (!eligible.length) return s.status(400).json({ error: 'No active students match the selected cohort and departments' });
   const sameDay = await Exam.find({
     _id: { $ne: exam._id },
@@ -170,8 +186,8 @@ export const put_exams_id_37 = wrap(async (q, s) => {
   exam.date = date;
   exam.startTime = body.startTime;
   exam.endTime = body.endTime;
-  exam.departments = departments;
-  exam.department = departments.length === 1 ? departments[0] : undefined;
+  exam.departments = eligibleDepartments.length ? eligibleDepartments : departments;
+  exam.department = exam.departments.length === 1 ? exam.departments[0] : undefined;
   exam.eligible = eligible.map((student) => student._id);
   await exam.save();
   await AuditLog.create({ actor: q.user.id, action: 'exam.update', target: exam.id });

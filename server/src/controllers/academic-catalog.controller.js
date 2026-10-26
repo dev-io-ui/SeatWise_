@@ -1,5 +1,7 @@
 import { z } from 'zod';
 import { Program, Department, Student, Subject, Exam, User, AuditLog } from '../models/index.js';
+import { generateAcademicCode } from '../academics/codes.js';
+import { subjectDepartmentNames } from '../academics/subject-departments.js';
 import { wrap } from './shared.js';
 
 export const get_programs_7 = wrap(async (q, s) => s.json(await Program.find().sort('name')));
@@ -29,10 +31,17 @@ export const get_exams_eligibility_9 = wrap(async (q, s) => {
   if (selected.some((name) => departmentScope.length && !departmentScope.includes(name))) {
     return s.status(403).json({ error: 'Select only departments assigned to your officer account' });
   }
+  const mappedDepartments = subjectDepartmentNames(subject);
+  if (mappedDepartments.length && selected.some((name) => !mappedDepartments.includes(name))) {
+    return s.status(400).json({ error: `This subject is mapped to ${mappedDepartments.join(', ')}.` });
+  }
   const cohortFilter = {
-    active: true, program: subject.program, year: subject.year, semester: subject.semester,
-    ...(departmentScope.length && { department: { $in: departmentScope } })
+    active: true, program: subject.program, year: subject.year, semester: subject.semester
   };
+  const allowedDepartments = mappedDepartments.length && departmentScope.length
+    ? mappedDepartments.filter((name) => departmentScope.includes(name))
+    : mappedDepartments.length ? mappedDepartments : departmentScope;
+  if (allowedDepartments.length) cohortFilter.department = { $in: allowedDepartments };
   const countFilter = { ...cohortFilter, ...(selected.length && { department: { $in: selected } }) };
   const [total, groups] = await Promise.all([
     Student.countDocuments(countFilter),
@@ -56,47 +65,45 @@ export const get_departments_10 = wrap(async (q, s) => {
 });
 
 export const post_departments_11 = wrap(async (q, s) => {
-  const body = z.object({
-    name: z.string().trim().min(2).max(80),
-    code: z.string().trim().min(2).max(12).regex(/^[a-z0-9-]+$/i)
-  }).strict().parse(q.body);
-  const department = await Department.create({ name: body.name, code: body.code.toUpperCase() });
+  const body = z.object({ name: z.string().trim().min(2).max(80) }).strict().parse(q.body);
+  const department = await Department.create({
+    name: body.name,
+    code: await generateAcademicCode(body.name)
+  });
   await AuditLog.create({ actor: q.user.id, action: 'department.create', target: department.id });
   s.status(201).json(department);
 });
 
 export const put_departments_id_35 = wrap(async (q, s) => {
-  const body = z.object({
-    name: z.string().trim().min(2).max(80),
-    code: z.string().trim().min(2).max(12).regex(/^[a-z0-9-]+$/i)
-  }).strict().parse(q.body);
+  const body = z.object({ name: z.string().trim().min(2).max(80) }).strict().parse(q.body);
   const department = await Department.findById(q.params.id);
   if (!department) return s.status(404).json({ error: 'Department not found' });
   const previousName = department.name;
   const previousCode = department.code;
-  const nextCode = body.code.toUpperCase();
-  if (await Department.exists({ _id: { $ne: department._id }, $or: [{ name: body.name }, { code: nextCode }] })) {
-    return s.status(409).json({ error: 'A department with that name or code already exists.' });
+  if (await Department.exists({ _id: { $ne: department._id }, name: body.name })) {
+    return s.status(409).json({ error: 'A department with that name already exists.' });
   }
   department.name = body.name;
-  department.code = nextCode;
   await department.save();
   if (previousName !== body.name) {
-    await Student.updateMany({ department: previousName }, { $set: { department: body.name } });
-    await Exam.updateMany({ department: previousName }, { $set: { department: body.name } });
-    await Exam.updateMany(
-      { departments: previousName },
-      { $set: { 'departments.$[department]': body.name } },
-      { arrayFilters: [{ department: previousName }] }
-    );
-    await User.updateMany(
-      { role: 'officer', 'scope.departments': previousName },
-      { $set: { 'scope.departments.$[department]': body.name } },
-      { arrayFilters: [{ department: previousName }] }
-    );
+    await Promise.all([
+      Student.updateMany({ department: previousName }, { $set: { department: body.name } }),
+      Subject.updateMany({ department: previousName }, { $set: { department: body.name } }),
+      Exam.updateMany({ department: previousName }, { $set: { department: body.name } }),
+      Exam.updateMany(
+        { departments: previousName },
+        { $set: { 'departments.$[department]': body.name } },
+        { arrayFilters: [{ department: previousName }] }
+      ),
+      User.updateMany(
+        { role: 'officer', 'scope.departments': previousName },
+        { $set: { 'scope.departments.$[department]': body.name } },
+        { arrayFilters: [{ department: previousName }] }
+      )
+    ]);
   }
   await AuditLog.create({ actor: q.user.id, action: 'department.update', target: department.id, meta: {
-    previousName, previousCode, name: body.name, code: nextCode
+    previousName, previousCode, name: body.name, code: department.code
   } });
   s.json(department);
 });
@@ -106,7 +113,7 @@ export const post_programs_12 = wrap(async (q, s) => {
     name: z.string().trim().min(1), years: z.array(z.number().int().min(1)).min(1),
     semesters: z.array(z.number().int().min(1)).min(1)
   }).strict().parse(q.body);
-  const program = await Program.create(body);
+  const program = await Program.create({ ...body, code: await generateAcademicCode(body.name) });
   await AuditLog.create({ actor: q.user.id, action: 'program.create', target: program.id });
   s.status(201).json(program);
 });
