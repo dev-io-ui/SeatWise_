@@ -5,7 +5,7 @@ import { Alert, Field, FormSteps, Loading, Pagination, useLoad, usePagination } 
 export function Halls({ role }) {
   const buildings = useLoad('/buildings');
   const [buildingId, setBuildingId] = useState('');
-  const floors = useLoad(`/floors${buildingId ? `?buildingId=${buildingId}` : ''}`);
+  const floors = useLoad('/floors');
   const halls = useLoad('/halls');
   const hallPage = usePagination(halls.data || [], 10);
   const [buildingForm, setBuildingForm] = useState({ name: '', code: '' });
@@ -18,6 +18,7 @@ export function Halls({ role }) {
   const [floorEdit, setFloorEdit] = useState(null);
   const [hallEdit, setHallEdit] = useState(null);
   const currentFloors = floors.data?.filter((floor) => !form.building || String(floor.building?._id || floor.building) === form.building) || [];
+  const floorBuildingId = (floor) => String(floor.building?._id || floor.building);
   async function addBuilding(event) {
     event.preventDefault(); setSaving(true); setError('');
     try {
@@ -68,22 +69,50 @@ export function Halls({ role }) {
   if (buildings.loading || floors.loading || halls.loading) return <Loading />;
   return (
     <div className="two-column-page">
-      <section className="panel"><div className="panel-heading"><h2>Location hierarchy</h2><span>Building → Floor → Hall</span></div>
+      <section className="panel location-panel"><div className="panel-heading"><div><span className="eyebrow">CAMPUS MAP</span><h2>Location hierarchy</h2></div>
+        <span>{buildings.data?.length || 0} buildings · {floors.data?.length || 0} floors · {halls.data?.length || 0} halls</span></div>
         {role !== 'officer' && <div className="location-records">
-          <div className="table-scroll"><table><thead><tr><th>Buildings</th><th>Code</th><th /></tr></thead><tbody>
-            {buildings.data?.map((building) => <tr key={building._id}><td>{building.name}</td><td>{building.code}</td><td><button type="button" className="text-button" onClick={() => {
-              setBuildingId(building._id); setBuildingEdit(building._id); setBuildingForm({ name: building.name, code: building.code }); setSetupStep(0);
-            }}>Edit</button></td></tr>)}</tbody></table></div>
-          <div className="table-scroll"><table><thead><tr><th>Floors</th><th>Building</th><th>Code</th><th /></tr></thead><tbody>
-            {floors.data?.map((floor) => <tr key={floor._id}><td>{floor.name}</td><td>{floor.building?.name}</td><td>{floor.code}</td><td><button type="button" className="text-button" onClick={() => {
-              setBuildingId(String(floor.building?._id || floor.building)); setForm((old) => ({ ...old, building: String(floor.building?._id || floor.building) }));
-              setFloorEdit(floor._id); setFloorForm({ name: floor.name, code: floor.code }); setSetupStep(1);
-            }}>Edit</button></td></tr>)}</tbody></table></div>
+          {buildings.data?.length ? buildings.data.map((building) => {
+            const buildingFloors = floors.data?.filter((floor) => floorBuildingId(floor) === building._id) || [];
+            const buildingHalls = halls.data?.filter((hall) => String(hall.building?._id || hall.building) === building._id) || [];
+            return <article className="location-building" key={building._id}>
+              <div className="location-building-heading">
+                <span className="location-node-icon" aria-hidden="true">B</span>
+                <div className="location-node-copy"><h3>{building.name}</h3><span>Building code · {building.code}</span></div>
+                <span className="location-count">{buildingFloors.length} {buildingFloors.length === 1 ? 'floor' : 'floors'} · {buildingHalls.length} {buildingHalls.length === 1 ? 'hall' : 'halls'}</span>
+                <button type="button" className="location-edit-button" onClick={() => {
+                  setBuildingId(building._id); setBuildingEdit(building._id); setBuildingForm({ name: building.name, code: building.code }); setSetupStep(0);
+                }}>Edit building</button>
+              </div>
+              {buildingFloors.length ? <div className="location-floor-list">
+                {buildingFloors.map((floor) => {
+                  const floorHalls = buildingHalls.filter((hall) => String(hall.floor?._id || hall.floor) === floor._id);
+                  return <div className="location-floor" key={floor._id}>
+                    <span className="location-floor-branch" aria-hidden="true" />
+                    <span className="location-node-icon floor-icon" aria-hidden="true">F</span>
+                    <div className="location-node-copy"><h4>{floor.name}</h4><span>Floor code · {floor.code}</span></div>
+                    <span className="location-count">{floorHalls.length} {floorHalls.length === 1 ? 'hall' : 'halls'}</span>
+                    <button type="button" className="location-edit-button" onClick={() => {
+                      setBuildingId(building._id);
+                      setForm((old) => ({ ...old, building: building._id }));
+                      setFloorEdit(floor._id); setFloorForm({ name: floor.name, code: floor.code }); setSetupStep(1);
+                    }}>Edit floor</button>
+                    {floorHalls.length > 0 && <div className="location-hall-list">
+                      {floorHalls.map((hall) => <span className="location-hall-chip" key={hall._id}>
+                        <strong>{hall.name}</strong><span>{hall.code} · {hall.rows} × {hall.cols}</span>
+                      </span>)}
+                    </div>}
+                  </div>;
+                })}
+              </div> : <p className="location-empty-note">No floors added yet.</p>}
+            </article>;
+          }) : <div className="empty-state">Create a building to start organizing floors and halls.</div>}
         </div>}
-        <div className="table-scroll"><table><thead><tr><th>Hall</th><th>Building</th><th>Floor</th><th>Layout</th><th>Usable</th>{role !== 'officer' && <th />}</tr></thead>
+        <div className="location-hall-table"><div className="panel-heading"><div><h3>Hall details</h3><p className="subtle">Capacity and seating layout for each hall.</p></div></div>
+        <div className="table-scroll"><table className="location-table"><thead><tr><th>Hall</th><th>Building</th><th>Floor</th><th>Layout</th><th>Usable</th>{role !== 'officer' && <th className="location-actions-heading">Actions</th>}</tr></thead>
           <tbody>{hallPage.rows.map((hall) => <tr key={hall._id}><td><strong>{hall.name}</strong><small>{hall.code}</small></td>
             <td>{hall.building?.name}</td><td>{hall.floor?.name}</td><td>{hall.rows} × {hall.cols}</td>
-            <td>{hall.rows * hall.cols - hall.blocked.length}</td>{role !== 'officer' && <td><button type="button" className="text-button" onClick={() => {
+            <td>{hall.rows * hall.cols - hall.blocked.length}</td>{role !== 'officer' && <td className="location-actions-cell"><button type="button" className="location-edit-button" onClick={() => {
               const blocked = (hall.blocked || []).map(({ r, c }) => {
                 let row = r + 1, letters = '';
                 while (row) { const remainder = (row - 1) % 26; letters = String.fromCharCode(65 + remainder) + letters; row = Math.floor((row - 1) / 26); }
@@ -93,6 +122,7 @@ export function Halls({ role }) {
               setForm({ name: hall.name, code: hall.code, building: String(hall.building?._id), floor: String(hall.floor?._id), rows: hall.rows, cols: hall.cols, blocked });
             }}>Edit</button></td>}</tr>)}</tbody></table></div>
         <Pagination {...hallPage} onPageChange={hallPage.setPage} />
+        </div>
         {!halls.data?.length && <div className="empty-state">{role === 'officer'
           ? 'No halls are available within your building access. Ask a Super Admin to review your building assignments.'
           : 'No halls yet. Create a building, floor and hall to get started.'}</div>}

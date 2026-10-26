@@ -20,11 +20,17 @@ function formatExamDate(date) {
 export default function StudentView({ user, tab, setTab }) {
   const [rows, setRows] = useState(null);
   const [error, setError] = useState('');
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
-    api('/students/me/exams').then(setRows).catch((reason) => setError(reason.message));
-  }, []);
+    let current = true;
+    setRows(null);
+    setError('');
+    api('/students/me/exams').then((data) => { if (current) setRows(data); })
+      .catch((reason) => { if (current) setError(reason.message); });
+    return () => { current = false; };
+  }, [attempt]);
+  if (error) return <div role="alert" className="err"><p>{error}</p><button className="outline" onClick={() => setAttempt((value) => value + 1)}>Retry</button></div>;
   if (!rows) return <div className="skeleton-card" aria-label="Loading timetable" />;
-  if (error) return <p role="alert" className="err">{error}</p>;
   const now = new Date();
   const sortedRows = [...rows].sort((a, b) => examStart(a) - examStart(b));
   const upcoming = sortedRows.filter((exam) => examStart(exam) >= now);
@@ -34,12 +40,13 @@ export default function StudentView({ user, tab, setTab }) {
     const past = startsAt < now;
     return (
       <article key={`${exam.code}-${exam.date}-${index}`} className={`ticket ${past ? 'past' : ''}`}>
-        <div className="ticket-top"><span className="eyebrow">{exam.examType || 'Exam'} · {exam.code}</span><span className={`status ${past ? '' : 'published'}`}>{past ? 'Completed' : 'Upcoming'}</span></div>
+        <div className="ticket-top"><span className="eyebrow">{exam.examType || 'Exam'} · {exam.code}</span><span className={`status ${!past && exam.planStatus === 'published' ? 'published' : ''}`}>{past ? 'Completed' : exam.planStatus === 'allocated' ? 'Provisional schedule' : 'Upcoming'}</span></div>
         <h2>{exam.subject}</h2>
         <p>{formatExamDate(startsAt)}</p>
         <p>{exam.start} to {exam.end}</p>
-        <p>{exam.building} · {exam.floor} · {exam.hall}</p>
-        <div className="seat-number">Seat {exam.seat}</div>
+        {exam.hall ? <p>{exam.building} · {exam.floor} · {exam.hall}</p> : <p>Venue and seat assignment pending</p>}
+        <div className="seat-number">{exam.seat ? `Seat ${exam.seat}` : 'Seat pending'}</div>
+        {!past && exam.planStatus === 'allocated' && <small className="subtle">Seat plan may change before staff publish it.</small>}
         {exam.resources?.length > 0 && <p className="ticket-resources">{exam.resources.length} study {exam.resources.length === 1 ? 'resource' : 'resources'} available</p>}
       </article>
     );
@@ -74,7 +81,7 @@ export default function StudentView({ user, tab, setTab }) {
       {tab === 'My Exams' && <section className="student-section">
         <div className="student-section-heading"><div><span className="eyebrow">PERSONAL SCHEDULE</span><h2>My exams</h2><p>Only your published exams and assigned seats are shown here.</p></div><button className="outline" onClick={() => setTab('Documents')}>Get documents</button></div>
         {sortedRows.length ? <div className="cards">{cards(sortedRows)}</div> :
-          <div className="empty-state"><h2>No published exams yet</h2><p>Your timetable and assigned seat will appear here once published.</p></div>}
+          <div className="empty-state"><h2>No exams available yet</h2><p>Your schedule will appear here when an exam is allocated to your academic cohort.</p></div>}
       </section>}
       {tab === 'Documents' && <section className="student-section">
         <div className="student-section-heading"><div><span className="eyebrow">DOWNLOADS</span><h2>My documents</h2><p>Personal PDFs generated from your published exam and seat assignments.</p></div></div>
@@ -85,7 +92,7 @@ export default function StudentView({ user, tab, setTab }) {
         <p className="subtle">These files are private to your account. If a new exam is published, download an updated copy.</p>
       </section>}
       {tab === 'Study Resources' && <section className="student-section">
-        <div className="student-section-heading"><div><span className="eyebrow">PREPARE FOR YOUR EXAMS</span><h2>Study resources</h2><p>Materials shared by your exam officer for your published exams.</p></div></div>
+        <div className="student-section-heading"><div><span className="eyebrow">PREPARE FOR YOUR EXAMS</span><h2>Study resources</h2><p>Materials shared by your exam officer for your available exams.</p></div></div>
         {resourceExams.length ? <div className="study-exams">{resourceExams.map((exam, index) => (
           <section className="panel study-exam" key={`${exam.code}-${exam.date}-${index}`}>
             <div className="panel-heading"><div><h2>{exam.subject}</h2><span>{exam.examType || 'Exam'} · {exam.code} · {formatExamDate(examStart(exam))}</span></div><span>{exam.resources.length} {exam.resources.length === 1 ? 'resource' : 'resources'}</span></div>

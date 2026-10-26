@@ -104,9 +104,17 @@ export const post_exams_id_allocations_publish_9 = wrap(async (q, s) => {
 });
 
 export const get_students_me_exams_10 = wrap(async (q, s) => {
-  const seats = await SeatingAllocation.find({ student: q.user.student?._id || q.user.student, published: true })
-    .populate('exam').populate({ path: 'hall', populate: ['building', 'floor'] });
-  const examIds = seats.map((seat) => seat.exam?._id).filter(Boolean);
+  const student = q.user.student;
+  if (!student?._id) return s.status(403).json({ error: 'Your student profile is not linked to this login. Contact your institution administrator.' });
+  const exams = await Exam.find({ eligible: student._id, status: { $in: ['allocated', 'published'] } })
+    .sort('date startTime').lean();
+  const examIds = exams.map((exam) => exam._id);
+  const allSeats = await SeatingAllocation.find({ student: student._id, exam: { $in: examIds } })
+    .populate({ path: 'hall', populate: ['building', 'floor'] }).lean();
+  const seatByExam = new Map();
+  for (const seat of allSeats.sort((a, b) => b.version - a.version)) {
+    if (!seatByExam.has(String(seat.exam))) seatByExam.set(String(seat.exam), seat);
+  }
   const resources = await ExamResource.find({ exam: { $in: examIds } }).select('-data').sort('createdAt');
   const byExam = new Map();
   for (const resource of resources) {
@@ -119,9 +127,16 @@ export const get_students_me_exams_10 = wrap(async (q, s) => {
       fileName: resource.fileName, size: resource.size
     });
   }
-  s.json(seats.filter((x) => x.exam && x.hall).map(x => ({ subject: x.exam.subject, code: x.exam.subjectCode, examType: x.exam.examType || 'Other', date: x.exam.date, start: x.exam.startTime, end: x.exam.endTime,
-    building: x.hall.building?.name, floor: x.hall.floor?.name || x.hall.floor, hall: x.hall.name,
-    seat: `${String.fromCharCode(65 + x.r)}${x.c + 1}`, student: { name: q.user.name, rollNumber: q.user.student?.rollNumber },
-    department: q.user.student?.department, year: q.user.student?.year, semester: q.user.student?.semester,
-    resources: byExam.get(String(x.exam._id)) || [] })));
+  s.json(exams.map((exam) => {
+    const seat = seatByExam.get(String(exam._id));
+    return {
+      subject: exam.subject, code: exam.subjectCode, examType: exam.examType || 'Other', date: exam.date,
+      start: exam.startTime, end: exam.endTime, planStatus: exam.status,
+      building: seat?.hall?.building?.name, floor: seat?.hall?.floor?.name || seat?.hall?.floor?.toString(),
+      hall: seat?.hall?.name, seat: seat ? `${String.fromCharCode(65 + seat.r)}${seat.c + 1}` : null,
+      student: { name: student.name, rollNumber: student.rollNumber },
+      department: student.department, year: student.year, semester: student.semester,
+      resources: byExam.get(String(exam._id)) || []
+    };
+  }));
 });
